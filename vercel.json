@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run admin:build",
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 120
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/admin/:path*", "destination": "/admin/index.html" }
+  ],
+  "redirects": [
+    { "source": "/", "destination": "/admin", "permanent": false }
+  ]
+}

@@ -1,14 +1,12 @@
 services:
-  mysql:
-    image: mysql:8
-    container_name: interview-helper-mysql
+  mongo:
+    image: mongo:7
+    container_name: interview-helper-mongo
     restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ADMIN_PASSWORD:-password}
     ports:
-      - "${DB_PORT:-3306}:3306"
+      - "${MONGO_PORT:-27017}:27017"
     volumes:
-      - interview-helper-mysql-data:/var/lib/mysql
+      - interview-helper-mongo-data:/data/db
 
 volumes:
-  interview-helper-mysql-data:
+  interview-helper-mongo-data:

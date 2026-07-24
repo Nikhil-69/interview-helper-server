@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { pool, getSetting } from '../db.js';
+import { getSetting } from '../db.js';
+import { AiRequest } from '../models.js';
 import { requireAuth } from '../middleware/auth.js';
 import { askAI } from '../services/openaiWrapper.js';
 import { applyCreditChange } from '../services/creditService.js';
@@ -33,21 +34,28 @@ router.post('/ask', requireAuth, async (req, res) => {
 
   try {
     const result = await askAI({ context, history, question, imageSrc });
-    await pool.query(
-      `INSERT INTO ai_requests (user_id, request_type, model, credits_charged, status, prompt_tokens, completion_tokens)
-       VALUES (?, ?, ?, ?, 'success', ?, ?)`,
-      [req.user.id, requestType, result.model, cost, result.promptTokens, result.completionTokens]
-    );
+    await AiRequest.create({
+      user_id: req.user.id,
+      request_type: requestType,
+      model: result.model,
+      credits_charged: cost,
+      status: 'success',
+      prompt_tokens: result.promptTokens,
+      completion_tokens: result.completionTokens,
+    });
     res.json({ answer: result.answer, credits: balance, creditsCharged: cost });
   } catch (err) {
     const refund = await applyCreditChange(req.user.id, cost, 'usage', {
       description: `Refund: failed AI request (${requestType})`,
     });
-    await pool.query(
-      `INSERT INTO ai_requests (user_id, request_type, model, credits_charged, status, error_message)
-       VALUES (?, ?, '', 0, 'failed', ?)`,
-      [req.user.id, requestType, String(err.message).slice(0, 500)]
-    );
+    await AiRequest.create({
+      user_id: req.user.id,
+      request_type: requestType,
+      model: '',
+      credits_charged: 0,
+      status: 'failed',
+      error_message: String(err.message).slice(0, 500),
+    });
     const status = err.code === 'AI_NOT_CONFIGURED' ? 503 : 502;
     res.status(status).json({ error: `AI request failed: ${err.message}`, credits: refund.balance });
   }

@@ -1,66 +1,90 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { pool } from '../db.js';
+import { SETTING_DEFAULTS } from '../db.js';
+import { User, CreditTransaction, CreditPackage, Order, AiRequest, Setting, toUserJson } from '../models.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { applyCreditChange } from '../services/creditService.js';
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
 
+const emailOf = (populated) => populated?.email ?? '(deleted)';
+
+const toTxJson = (t) => ({
+  id: t._id.toString(),
+  email: emailOf(t.user_id),
+  type: t.type,
+  amount: t.amount,
+  balance_after: t.balance_after,
+  description: t.description,
+  created_at: t.created_at,
+});
+
 // ---- Users CRUD ----
 
 router.get('/users', async (req, res) => {
-  const search = req.query.q ? `%${req.query.q}%` : null;
-  const params = [];
-  let where = '';
-  if (search) {
-    where = 'WHERE email LIKE ? OR name LIKE ?';
-    params.push(search, search);
-  }
-  const [rows] = await pool.query(
-    `SELECT id, email, name, role, status, credits_balance, created_at
-     FROM users ${where} ORDER BY id DESC LIMIT 200`,
-    params
-  );
-  res.json({ users: rows });
+  const filter = req.query.q
+    ? {
+        $or: [
+          { email: { $regex: req.query.q, $options: 'i' } },
+          { name: { $regex: req.query.q, $options: 'i' } },
+        ],
+      }
+    : {};
+  const users = await User.find(filter).sort({ _id: -1 }).limit(200);
+  res.json({ users: users.map(toUserJson) });
 });
 
 router.post('/users', async (req, res) => {
   const { email, password, name = '', role = 'user', credits = 0 } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'email and password required' });
   const passwordHash = await bcrypt.hash(password, 10);
+  let user;
   try {
-    const [result] = await pool.query(
-      'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
-      [email.toLowerCase().trim(), passwordHash, name, role === 'admin' ? 'admin' : 'user']
-    );
-    if (Number(credits) > 0) {
-      await applyCreditChange(result.insertId, Number(credits), 'admin_adjustment', {
-        description: 'Initial credits (admin-created account)',
-      });
-    }
-    res.status(201).json({ id: result.insertId });
+    user = await User.create({
+      email,
+      password_hash: passwordHash,
+      name,
+      role: role === 'admin' ? 'admin' : 'user',
+    });
   } catch (err) {
-    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Email already exists' });
+    if (err.code === 11000) return res.status(409).json({ error: 'Email already exists' });
     throw err;
   }
+  if (Number(credits) > 0) {
+    await applyCreditChange(user._id, Number(credits), 'admin_adjustment', {
+      description: 'Initial credits (admin-created account)',
+    });
+  }
+  res.status(201).json({ id: user._id.toString() });
 });
 
 router.get('/users/:id', async (req, res) => {
-  const [users] = await pool.query(
-    'SELECT id, email, name, role, status, credits_balance, created_at FROM users WHERE id = ?',
-    [req.params.id]
-  );
-  if (!users.length) return res.status(404).json({ error: 'User not found' });
-  const [transactions] = await pool.query(
-    'SELECT id, type, amount, balance_after, description, created_at FROM credit_transactions WHERE user_id = ? ORDER BY id DESC LIMIT 100',
-    [req.params.id]
-  );
-  const [requests] = await pool.query(
-    'SELECT id, request_type, model, credits_charged, status, error_message, created_at FROM ai_requests WHERE user_id = ? ORDER BY id DESC LIMIT 100',
-    [req.params.id]
-  );
-  res.json({ user: users[0], transactions, requests });
+  const user = await User.findById(req.params.id).catch(() => null);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const transactions = await CreditTransaction.find({ user_id: user._id }).sort({ _id: -1 }).limit(100).lean();
+  const requests = await AiRequest.find({ user_id: user._id }).sort({ _id: -1 }).limit(100).lean();
+  res.json({
+    user: toUserJson(user),
+    transactions: transactions.map((t) => ({
+      id: t._id.toString(),
+      type: t.type,
+      amount: t.amount,
+      balance_after: t.balance_after,
+      description: t.description,
+      created_at: t.created_at,
+    })),
+    requests: requests.map((r) => ({
+      id: r._id.toString(),
+      request_type: r.request_type,
+      model: r.model,
+      credits_charged: r.credits_charged,
+      status: r.status,
+      error_message: r.error_message,
+      created_at: r.created_at,
+    })),
+  });
 });
 
 router.patch('/users/:id', async (req, res) => {
@@ -71,15 +95,21 @@ router.patch('/users/:id', async (req, res) => {
   if (req.body.password) allowed.password_hash = await bcrypt.hash(req.body.password, 10);
   if (!Object.keys(allowed).length) return res.status(400).json({ error: 'Nothing to update' });
 
-  const [result] = await pool.query('UPDATE users SET ? WHERE id = ?', [allowed, req.params.id]);
-  if (!result.affectedRows) return res.status(404).json({ error: 'User not found' });
+  const user = await User.findByIdAndUpdate(req.params.id, allowed).catch(() => null);
+  if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ ok: true });
 });
 
 router.delete('/users/:id', async (req, res) => {
-  if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
-  const [result] = await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
-  if (!result.affectedRows) return res.status(404).json({ error: 'User not found' });
+  if (req.params.id === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
+  const user = await User.findByIdAndDelete(req.params.id).catch(() => null);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  // No FK cascades in Mongo — clean up the user's history explicitly.
+  await Promise.all([
+    CreditTransaction.deleteMany({ user_id: user._id }),
+    Order.deleteMany({ user_id: user._id }),
+    AiRequest.deleteMany({ user_id: user._id }),
+  ]);
   res.json({ ok: true });
 });
 
@@ -91,7 +121,7 @@ router.post('/users/:id/credits', async (req, res) => {
     return res.status(400).json({ error: 'amount must be a non-zero integer (negative to deduct)' });
   }
   try {
-    const { balance } = await applyCreditChange(Number(req.params.id), amount, 'admin_adjustment', {
+    const { balance } = await applyCreditChange(req.params.id, amount, 'admin_adjustment', {
       description: req.body?.reason || `Adjusted by ${req.user.email}`,
     });
     res.json({ credits: balance });
@@ -105,9 +135,19 @@ router.post('/users/:id/credits', async (req, res) => {
 
 // ---- Packages CRUD ----
 
+const toPackageJson = (p) => ({
+  id: p._id.toString(),
+  name: p.name,
+  credits: p.credits,
+  price: p.price,
+  currency: p.currency,
+  is_active: p.is_active,
+  created_at: p.created_at,
+});
+
 router.get('/packages', async (_req, res) => {
-  const [rows] = await pool.query('SELECT * FROM credit_packages ORDER BY credits');
-  res.json({ packages: rows });
+  const rows = await CreditPackage.find().sort({ credits: 1 }).lean();
+  res.json({ packages: rows.map(toPackageJson) });
 });
 
 router.post('/packages', async (req, res) => {
@@ -115,11 +155,14 @@ router.post('/packages', async (req, res) => {
   if (!name || !Number(credits) || price === undefined) {
     return res.status(400).json({ error: 'name, credits, price required' });
   }
-  const [result] = await pool.query(
-    'INSERT INTO credit_packages (name, credits, price, currency, is_active) VALUES (?, ?, ?, ?, ?)',
-    [name, Number(credits), Number(price), currency, isActive ? 1 : 0]
-  );
-  res.status(201).json({ id: result.insertId });
+  const pkg = await CreditPackage.create({
+    name,
+    credits: Number(credits),
+    price: Number(price),
+    currency,
+    is_active: !!isActive,
+  });
+  res.status(201).json({ id: pkg._id.toString() });
 });
 
 router.patch('/packages/:id', async (req, res) => {
@@ -128,31 +171,40 @@ router.patch('/packages/:id', async (req, res) => {
   if (req.body.credits !== undefined) allowed.credits = Number(req.body.credits);
   if (req.body.price !== undefined) allowed.price = Number(req.body.price);
   if (req.body.currency !== undefined) allowed.currency = req.body.currency;
-  if (req.body.isActive !== undefined) allowed.is_active = req.body.isActive ? 1 : 0;
+  if (req.body.isActive !== undefined) allowed.is_active = !!req.body.isActive;
   if (!Object.keys(allowed).length) return res.status(400).json({ error: 'Nothing to update' });
-  const [result] = await pool.query('UPDATE credit_packages SET ? WHERE id = ?', [allowed, req.params.id]);
-  if (!result.affectedRows) return res.status(404).json({ error: 'Package not found' });
+  const pkg = await CreditPackage.findByIdAndUpdate(req.params.id, allowed).catch(() => null);
+  if (!pkg) return res.status(404).json({ error: 'Package not found' });
   res.json({ ok: true });
 });
 
 router.delete('/packages/:id', async (req, res) => {
-  const [result] = await pool.query('DELETE FROM credit_packages WHERE id = ?', [req.params.id]);
-  if (!result.affectedRows) return res.status(404).json({ error: 'Package not found' });
+  const pkg = await CreditPackage.findByIdAndDelete(req.params.id).catch(() => null);
+  if (!pkg) return res.status(404).json({ error: 'Package not found' });
   res.json({ ok: true });
 });
 
 // ---- Settings ----
 
 router.get('/settings', async (_req, res) => {
-  const [rows] = await pool.query('SELECT `key`, `value`, updated_at FROM settings ORDER BY `key`');
-  res.json({ settings: rows });
+  const docs = await Setting.find().lean();
+  const stored = Object.fromEntries(docs.map((d) => [d.key, d]));
+  const settings = Object.keys({ ...SETTING_DEFAULTS, ...stored })
+    .sort()
+    .map((key) => ({
+      key,
+      value: stored[key]?.value ?? SETTING_DEFAULTS[key],
+      updated_at: stored[key]?.updated_at ?? null,
+    }));
+  res.json({ settings });
 });
 
 router.put('/settings/:key', async (req, res) => {
   if (req.body?.value === undefined) return res.status(400).json({ error: 'value required' });
-  await pool.query(
-    'INSERT INTO settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
-    [req.params.key, String(req.body.value)]
+  await Setting.findOneAndUpdate(
+    { key: req.params.key },
+    { value: String(req.body.value) },
+    { upsert: true }
   );
   res.json({ ok: true });
 });
@@ -160,43 +212,62 @@ router.put('/settings/:key', async (req, res) => {
 // ---- Global activity views ----
 
 router.get('/transactions', async (_req, res) => {
-  const [rows] = await pool.query(
-    `SELECT ct.*, u.email FROM credit_transactions ct
-     JOIN users u ON u.id = ct.user_id ORDER BY ct.id DESC LIMIT 200`
-  );
-  res.json({ transactions: rows });
+  const rows = await CreditTransaction.find().sort({ _id: -1 }).limit(200).populate('user_id', 'email').lean();
+  res.json({ transactions: rows.map(toTxJson) });
 });
 
 router.get('/requests', async (_req, res) => {
-  const [rows] = await pool.query(
-    `SELECT ar.*, u.email FROM ai_requests ar
-     JOIN users u ON u.id = ar.user_id ORDER BY ar.id DESC LIMIT 200`
-  );
-  res.json({ requests: rows });
+  const rows = await AiRequest.find().sort({ _id: -1 }).limit(200).populate('user_id', 'email').lean();
+  res.json({
+    requests: rows.map((r) => ({
+      id: r._id.toString(),
+      email: emailOf(r.user_id),
+      request_type: r.request_type,
+      model: r.model,
+      credits_charged: r.credits_charged,
+      status: r.status,
+      error_message: r.error_message,
+      prompt_tokens: r.prompt_tokens,
+      completion_tokens: r.completion_tokens,
+      created_at: r.created_at,
+    })),
+  });
 });
 
 router.get('/orders', async (_req, res) => {
-  const [rows] = await pool.query(
-    `SELECT o.*, u.email FROM orders o
-     JOIN users u ON u.id = o.user_id ORDER BY o.id DESC LIMIT 200`
-  );
-  res.json({ orders: rows });
+  const rows = await Order.find().sort({ _id: -1 }).limit(200).populate('user_id', 'email').lean();
+  res.json({
+    orders: rows.map((o) => ({
+      id: o._id.toString(),
+      email: emailOf(o.user_id),
+      credits: o.credits,
+      amount: o.amount,
+      currency: o.currency,
+      status: o.status,
+      created_at: o.created_at,
+      paid_at: o.paid_at,
+    })),
+  });
 });
 
 router.get('/stats', async (_req, res) => {
-  const [[users]] = await pool.query("SELECT COUNT(*) AS total FROM users WHERE role = 'user'");
-  const [[requests]] = await pool.query('SELECT COUNT(*) AS total FROM ai_requests');
-  const [[creditsUsed]] = await pool.query(
-    "SELECT COALESCE(SUM(-amount), 0) AS total FROM credit_transactions WHERE type = 'usage' AND amount < 0"
-  );
-  const [[revenue]] = await pool.query(
-    "SELECT COALESCE(SUM(amount), 0) AS total FROM orders WHERE status = 'paid'"
-  );
+  const [users, aiRequests, usage, revenue] = await Promise.all([
+    User.countDocuments({ role: 'user' }),
+    AiRequest.countDocuments(),
+    CreditTransaction.aggregate([
+      { $match: { type: 'usage', amount: { $lt: 0 } } },
+      { $group: { _id: null, total: { $sum: { $multiply: ['$amount', -1] } } } },
+    ]),
+    Order.aggregate([
+      { $match: { status: 'paid' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]),
+  ]);
   res.json({
-    users: users.total,
-    aiRequests: requests.total,
-    creditsUsed: Number(creditsUsed.total),
-    revenue: Number(revenue.total),
+    users,
+    aiRequests,
+    creditsUsed: usage[0]?.total ?? 0,
+    revenue: revenue[0]?.total ?? 0,
   });
 });
 

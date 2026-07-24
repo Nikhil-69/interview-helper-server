@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
-import { pool } from '../db.js';
+import { User, toUserJson } from '../models.js';
 
 export function signToken(user) {
   return jwt.sign({ sub: user.id, role: user.role }, config.jwtSecret, {
@@ -20,14 +20,11 @@ export async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
-  const [rows] = await pool.query(
-    'SELECT id, email, name, role, status, credits_balance FROM users WHERE id = ?',
-    [payload.sub]
-  );
-  if (!rows.length) return res.status(401).json({ error: 'User not found' });
-  if (rows[0].status === 'blocked') return res.status(403).json({ error: 'Account is blocked' });
+  const user = await User.findById(payload.sub).catch(() => null);
+  if (!user) return res.status(401).json({ error: 'User not found' });
+  if (user.status === 'blocked') return res.status(403).json({ error: 'Account is blocked' });
 
-  req.user = rows[0];
+  req.user = toUserJson(user);
   next();
 }
 

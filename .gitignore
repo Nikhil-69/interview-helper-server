@@ -1,3 +1,8 @@
 node_modules/
 .env
 admin/dist/
+public/admin/
+.vercel/
+credentials/
+
+.vercel

@@ -1,19 +1,34 @@
-import mysql from 'mysql2/promise';
+import mongoose from 'mongoose';
 import { config } from './config.js';
+import { Setting } from './models.js';
 
-export const pool = mysql.createPool({
-  ...config.db,
-  waitForConnections: true,
-  connectionLimit: 10,
-  namedPlaceholders: true,
-});
+// Cache the connection promise on globalThis so warm serverless invocations
+// (Vercel) reuse it instead of opening a new connection per request.
+const cached = globalThis.__mongoose ?? (globalThis.__mongoose = { promise: null });
+
+export function connectDB() {
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(config.mongodbUri, {
+      maxPoolSize: Number(process.env.DB_POOL_SIZE || (process.env.VERCEL ? 5 : 10)),
+    });
+  }
+  return cached.promise;
+}
+
+export const SETTING_DEFAULTS = {
+  credit_cost_text: '1',
+  credit_cost_vision: '2',
+  signup_bonus_credits: '10',
+  ai_model: 'gpt-4o',
+  ai_max_tokens: '1000',
+};
 
 export async function getSetting(key, fallback = null) {
-  const [rows] = await pool.query('SELECT `value` FROM settings WHERE `key` = ?', [key]);
-  return rows.length ? rows[0].value : fallback;
+  const doc = await Setting.findOne({ key }).lean();
+  return doc ? doc.value : (SETTING_DEFAULTS[key] ?? fallback);
 }
 
 export async function getSettings() {
-  const [rows] = await pool.query('SELECT `key`, `value` FROM settings');
-  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const docs = await Setting.find().lean();
+  return { ...SETTING_DEFAULTS, ...Object.fromEntries(docs.map((d) => [d.key, d.value])) };
 }

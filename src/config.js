@@ -2,14 +2,20 @@ import 'dotenv/config';
 
 export const config = {
   port: Number(process.env.PORT || 4000),
-  db: {
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: Number(process.env.DB_PORT || 3306),
-    user: process.env.DB_USER || 'interview_helper',
-    password: process.env.DB_PASSWORD || 'interview_helper_password',
-    database: process.env.DB_NAME || 'interview_helper',
-  },
+  mongodbUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/interview_helper',
   jwtSecret: process.env.JWT_SECRET || 'dev-secret',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   openaiApiKey: process.env.OPENAI_API_KEY || '',
+  openaiBaseUrl: process.env.OPENAI_BASE_URL || undefined,
+  // Overrides the ai_model / ai_max_tokens admin settings (stored in Mongo) when set.
+  openaiModel: process.env.OPENAI_MODEL || '',
+  openaiMaxTokens: process.env.OPENAI_MAX_TOKENS ? Number(process.env.OPENAI_MAX_TOKENS) : undefined,
+  vertexProjectId: process.env.VERTEX_PROJECT_ID || '',
+  vertexLocation: process.env.VERTEX_LOCATION || 'global',
+  vertexModel: process.env.VERTEX_MODEL || 'gemini-2.5-pro',
+  vertexApiEndpoint: process.env.VERTEX_API_ENDPOINT || 'aiplatform.googleapis.com',
+  // Either a path to a service-account JSON file (local dev) or the raw/base64
+  // JSON contents (for platforms like Vercel where only env vars are available).
+  vertexKeyFile: process.env.VERTEX_KEY_FILE || './credentials/vertex-service-account.json',
+  vertexServiceAccountJson: process.env.VERTEX_SERVICE_ACCOUNT_JSON || '',
 };
