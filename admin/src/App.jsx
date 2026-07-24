@@ -64,7 +64,7 @@ function UserModal({ user, onClose, onSaved }) {
   const [models, setModels] = useState({ openai: [DEFAULT_MODEL_OPTION], vertex: [DEFAULT_MODEL_OPTION] });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  useEffect(() => { api('/admin/models').then(setModels).catch(console.error); }, []);
+  useEffect(() => { api('/admin/models').then((d) => setModels(d.models)).catch(console.error); }, []);
 
   const save = async () => {
     setError('');

@@ -197,8 +197,8 @@ router.delete('/packages/:id', async (req, res) => {
 
 // ---- AI models ----
 
-router.get('/models', async (_req, res) => {
-  res.json({ models: await getAvailableModels() });
+router.get('/models', (_req, res) => {
+  res.json({ models: getAvailableModels() });
 });
 
 // ---- Settings ----

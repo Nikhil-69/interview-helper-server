@@ -57,20 +57,6 @@ function dataUrlToInlinePart(dataUrl) {
 }
 
 /**
- * Cheaply verifies a Gemini model id is actually reachable with our service
- * account/project (countTokens does no generation, so it's ~free and fast).
- * Used to filter the admin model picker down to models our credentials support.
- */
-export async function isVertexModelAvailable(modelName) {
-  try {
-    await getModel(modelName).countTokens({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }] });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Vertex AI (Gemini) fallback provider — same contract as askAI in openaiWrapper.js:
  * context + history + question (+ optional base64 image data URLs) -> answer text.
  */
