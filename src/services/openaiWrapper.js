@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { config } from '../config.js';
 import { getSettings } from '../db.js';
 import { askVertex } from './vertexWrapper.js';
+import { isGeminiModel } from './aiModels.js';
 
 let client = null;
 function getClient() {
@@ -44,12 +45,20 @@ Here is the pre-meeting context:\n\n${context || ''}`;
 /**
  * Wrapper around the AI provider. Same contract the desktop app used locally:
  * context + history + question (+ optional base64 images) -> answer text.
- * Falls back to Vertex AI (Gemini) if the primary OpenAI-compatible provider fails.
+ * Model precedence: server-level OPENAI_MODEL env override > the requesting
+ * user's per-user ai_model (set from the admin panel) > the global ai_model
+ * setting. Gemini model ids route straight to Vertex; everything else goes
+ * through the OpenAI-compatible provider, which still falls back to Vertex
+ * (using its own default model) if that provider fails or isn't configured.
  */
-export async function askAI({ context, history = [], question = '', images = [] }) {
+export async function askAI({ context, history = [], question = '', images = [], preferredModel = '' }) {
   const settings = await getSettings();
-  const model = config.openaiModel || settings.ai_model || 'gpt-4o';
+  const model = config.openaiModel || preferredModel || settings.ai_model || 'gpt-4o';
   const maxTokens = config.openaiMaxTokens ?? Number(settings.ai_max_tokens || 1000);
+
+  if (isGeminiModel(model)) {
+    return await askVertex({ context, history, question, images, model });
+  }
 
   try {
     return await askOpenAI({ context, history, question, images, model, maxTokens });

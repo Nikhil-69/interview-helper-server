@@ -56,9 +56,13 @@ function UserModal({ user, onClose, onSaved }) {
   const [form, setForm] = useState({
     email: user?.email || '', name: user?.name || '', password: '',
     role: user?.role || 'user', status: user?.status || 'active', credits: 0,
+    ai_model: user?.ai_model || '',
   });
   const [error, setError] = useState('');
+  const [models, setModels] = useState([{ value: '', label: 'Default (global setting)' }]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  useEffect(() => { api('/admin/models').then((d) => setModels(d.models)).catch(console.error); }, []);
 
   const save = async () => {
     setError('');
@@ -66,7 +70,7 @@ function UserModal({ user, onClose, onSaved }) {
       if (isNew) {
         await api('/admin/users', { method: 'POST', body: form });
       } else {
-        const body = { name: form.name, role: form.role, status: form.status };
+        const body = { name: form.name, role: form.role, status: form.status, ai_model: form.ai_model };
         if (form.password) body.password = form.password;
         await api(`/admin/users/${user.id}`, { method: 'PATCH', body });
       }
@@ -89,6 +93,10 @@ function UserModal({ user, onClose, onSaved }) {
         {!isNew && <div><label>Status</label>
           <select value={form.status} onChange={set('status')}>
             <option value="active">active</option><option value="blocked">blocked</option>
+          </select></div>}
+        {!isNew && <div><label>AI model</label>
+          <select value={form.ai_model} onChange={set('ai_model')}>
+            {models.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select></div>}
         {isNew && <div><label>Initial credits</label><input type="number" value={form.credits} onChange={set('credits')} /></div>}
         {error && <div className="error-msg">{error}</div>}
@@ -155,7 +163,7 @@ function Users() {
         <button className="btn" onClick={() => setModal({ type: 'new' })}>+ New user</button>
       </div>
       <table>
-        <thead><tr><th>ID</th><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Credits</th><th>Joined</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>AI model</th><th>Credits</th><th>Joined</th><th></th></tr></thead>
         <tbody>
           {users.map((u) => (
             <tr key={u.id}>
@@ -164,6 +172,7 @@ function Users() {
               <td>{u.name || <span className="muted">—</span>}</td>
               <td>{u.role === 'admin' ? <span className="pill admin">admin</span> : 'user'}</td>
               <td><span className={`pill ${u.status}`}>{u.status}</span></td>
+              <td className="muted">{u.ai_model || 'default'}</td>
               <td>{u.credits_balance}</td>
               <td className="muted">{fmtDate(u.created_at)}</td>
               <td>

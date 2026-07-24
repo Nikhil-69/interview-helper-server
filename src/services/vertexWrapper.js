@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import { VertexAI } from '@google-cloud/vertexai';
 import { config } from '../config.js';
 
-let vertexModel = null;
+let vertexAI = null;
+const modelCache = new Map();
 
 function loadCredentials() {
   if (config.vertexServiceAccountJson) {
@@ -17,8 +18,8 @@ function loadCredentials() {
   return null;
 }
 
-function getModel() {
-  if (vertexModel) return vertexModel;
+function getClient() {
+  if (vertexAI) return vertexAI;
 
   if (!config.vertexProjectId) {
     const err = new Error('VERTEX_PROJECT_ID is not configured on the server');
@@ -32,14 +33,21 @@ function getModel() {
     throw err;
   }
 
-  const vertexAI = new VertexAI({
+  vertexAI = new VertexAI({
     project: config.vertexProjectId,
     location: config.vertexLocation,
     apiEndpoint: config.vertexApiEndpoint,
     googleAuthOptions: { credentials },
   });
-  vertexModel = vertexAI.getGenerativeModel({ model: config.vertexModel });
-  return vertexModel;
+  return vertexAI;
+}
+
+function getModel(modelName) {
+  const name = modelName || config.vertexModel;
+  if (modelCache.has(name)) return modelCache.get(name);
+  const model = getClient().getGenerativeModel({ model: name });
+  modelCache.set(name, model);
+  return model;
 }
 
 function dataUrlToInlinePart(dataUrl) {
@@ -49,10 +57,24 @@ function dataUrlToInlinePart(dataUrl) {
 }
 
 /**
+ * Cheaply verifies a Gemini model id is actually reachable with our service
+ * account/project (countTokens does no generation, so it's ~free and fast).
+ * Used to filter the admin model picker down to models our credentials support.
+ */
+export async function isVertexModelAvailable(modelName) {
+  try {
+    await getModel(modelName).countTokens({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Vertex AI (Gemini) fallback provider — same contract as askAI in openaiWrapper.js:
  * context + history + question (+ optional base64 image data URLs) -> answer text.
  */
-export async function askVertex({ context, history = [], question = '', images = [] }) {
+export async function askVertex({ context, history = [], question = '', images = [], model }) {
   const systemMessage = `You are an expert interview copilot.
 Your goal is to help the user answer questions based on the provided context.
 Keep your answers concise, accurate, and directly address the user's prompt.
@@ -68,13 +90,14 @@ Here is the pre-meeting context:\n\n${context || ''}`;
     if (imagePart) parts.push(imagePart);
   }
 
-  const result = await getModel().generateContent({ contents: [{ role: 'user', parts }] });
+  const modelName = model || config.vertexModel;
+  const result = await getModel(modelName).generateContent({ contents: [{ role: 'user', parts }] });
   const response = result.response;
   const answer = response.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
 
   return {
     answer,
-    model: config.vertexModel,
+    model: modelName,
     promptTokens: response.usageMetadata?.promptTokenCount ?? null,
     completionTokens: response.usageMetadata?.candidatesTokenCount ?? null,
   };

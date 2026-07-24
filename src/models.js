@@ -13,6 +13,8 @@ const userSchema = new Schema(
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     status: { type: String, enum: ['active', 'blocked'], default: 'active' },
     credits_balance: { type: Number, default: 0 },
+    // Per-user AI model override. Empty string = use the global ai_model setting.
+    ai_model: { type: String, default: '' },
   },
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } }
 );
@@ -93,5 +95,6 @@ export const toUserJson = (u) => ({
   role: u.role,
   status: u.status,
   credits_balance: u.credits_balance,
+  ai_model: u.ai_model || '',
   created_at: u.created_at,
 });
