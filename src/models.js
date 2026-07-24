@@ -13,8 +13,11 @@ const userSchema = new Schema(
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     status: { type: String, enum: ['active', 'blocked'], default: 'active' },
     credits_balance: { type: Number, default: 0 },
-    // Per-user AI model override. Empty string = use the global ai_model setting.
-    ai_model: { type: String, default: '' },
+    // Per-user AI model overrides. Empty string = use the global setting.
+    // openai_model is the primary provider; vertex_model is the fallback
+    // used automatically if the primary provider fails.
+    openai_model: { type: String, default: '' },
+    vertex_model: { type: String, default: '' },
   },
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } }
 );
@@ -95,6 +98,7 @@ export const toUserJson = (u) => ({
   role: u.role,
   status: u.status,
   credits_balance: u.credits_balance,
-  ai_model: u.ai_model || '',
+  openai_model: u.openai_model || '',
+  vertex_model: u.vertex_model || '',
   created_at: u.created_at,
 });

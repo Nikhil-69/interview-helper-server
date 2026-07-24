@@ -7,7 +7,8 @@ export const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   openaiApiKey: process.env.OPENAI_API_KEY || '',
   openaiBaseUrl: process.env.OPENAI_BASE_URL || undefined,
-  // Overrides the ai_model / ai_max_tokens admin settings (stored in Mongo) when set.
+  // Base default model, used only when neither a per-user override nor the
+  // global ai_model admin setting (stored in Mongo) is set.
   openaiModel: process.env.OPENAI_MODEL || '',
   openaiMaxTokens: process.env.OPENAI_MAX_TOKENS ? Number(process.env.OPENAI_MAX_TOKENS) : undefined,
   vertexProjectId: process.env.VERTEX_PROJECT_ID || '',

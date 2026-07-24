@@ -4,7 +4,7 @@ import { SETTING_DEFAULTS } from '../db.js';
 import { User, CreditTransaction, CreditPackage, Order, AiRequest, Setting, toUserJson } from '../models.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { applyCreditChange } from '../services/creditService.js';
-import { getAvailableModels, isKnownModelValue } from '../services/aiModels.js';
+import { getAvailableModels, isKnownOpenAIModel, isKnownVertexModel } from '../services/aiModels.js';
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -93,10 +93,15 @@ router.patch('/users/:id', async (req, res) => {
   if (req.body.name !== undefined) allowed.name = req.body.name;
   if (['active', 'blocked'].includes(req.body.status)) allowed.status = req.body.status;
   if (['user', 'admin'].includes(req.body.role)) allowed.role = req.body.role;
-  if (req.body.ai_model !== undefined) {
-    const model = String(req.body.ai_model);
-    if (!isKnownModelValue(model)) return res.status(400).json({ error: 'Unknown ai_model' });
-    allowed.ai_model = model;
+  if (req.body.openai_model !== undefined) {
+    const model = String(req.body.openai_model);
+    if (!isKnownOpenAIModel(model)) return res.status(400).json({ error: 'Unknown openai_model' });
+    allowed.openai_model = model;
+  }
+  if (req.body.vertex_model !== undefined) {
+    const model = String(req.body.vertex_model);
+    if (!isKnownVertexModel(model)) return res.status(400).json({ error: 'Unknown vertex_model' });
+    allowed.vertex_model = model;
   }
   if (req.body.password) allowed.password_hash = await bcrypt.hash(req.body.password, 10);
   if (!Object.keys(allowed).length) return res.status(400).json({ error: 'Nothing to update' });

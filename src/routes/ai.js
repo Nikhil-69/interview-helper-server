@@ -35,7 +35,14 @@ router.post('/ask', requireAuth, async (req, res) => {
   }
 
   try {
-    const result = await askAI({ context, history, question, images: imageList, preferredModel: req.user.ai_model });
+    const result = await askAI({
+      context,
+      history,
+      question,
+      images: imageList,
+      preferredOpenAIModel: req.user.openai_model,
+      preferredVertexModel: req.user.vertex_model,
+    });
     await AiRequest.create({
       user_id: req.user.id,
       request_type: requestType,

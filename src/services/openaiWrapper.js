@@ -2,7 +2,6 @@ import OpenAI from 'openai';
 import { config } from '../config.js';
 import { getSettings } from '../db.js';
 import { askVertex } from './vertexWrapper.js';
-import { isGeminiModel } from './aiModels.js';
 
 let client = null;
 function getClient() {
@@ -45,20 +44,22 @@ Here is the pre-meeting context:\n\n${context || ''}`;
 /**
  * Wrapper around the AI provider. Same contract the desktop app used locally:
  * context + history + question (+ optional base64 images) -> answer text.
- * Model precedence: server-level OPENAI_MODEL env override > the requesting
- * user's per-user ai_model (set from the admin panel) > the global ai_model
- * setting. Gemini model ids route straight to Vertex; everything else goes
- * through the OpenAI-compatible provider, which still falls back to Vertex
- * (using its own default model) if that provider fails or isn't configured.
+ * OpenAI is always the primary provider; Vertex (Gemini) is the fallback used
+ * automatically if OpenAI fails or isn't configured.
+ * Model precedence (per provider): the requesting user's per-user override
+ * (set from the admin panel) > the global admin setting/env default.
  */
-export async function askAI({ context, history = [], question = '', images = [], preferredModel = '' }) {
+export async function askAI({
+  context,
+  history = [],
+  question = '',
+  images = [],
+  preferredOpenAIModel = '',
+  preferredVertexModel = '',
+}) {
   const settings = await getSettings();
-  const model = config.openaiModel || preferredModel || settings.ai_model || 'gpt-4o';
+  const model = preferredOpenAIModel || settings.ai_model || config.openaiModel || 'gpt-4o';
   const maxTokens = config.openaiMaxTokens ?? Number(settings.ai_max_tokens || 1000);
-
-  if (isGeminiModel(model)) {
-    return await askVertex({ context, history, question, images, model });
-  }
 
   try {
     return await askOpenAI({ context, history, question, images, model, maxTokens });
@@ -68,6 +69,6 @@ export async function askAI({ context, history = [], question = '', images = [],
     } else {
       console.error('Primary AI provider failed, falling back to Vertex AI:', primaryErr.message);
     }
-    return await askVertex({ context, history, question, images });
+    return await askVertex({ context, history, question, images, model: preferredVertexModel || undefined });
   }
 }
