@@ -13,10 +13,12 @@ const router = Router();
  * provider failure, and logs every request to ai_requests.
  */
 router.post('/ask', requireAuth, async (req, res) => {
-  const { context = '', history = [], question = '', imageSrc = null } = req.body || {};
-  if (!question && !imageSrc) return res.status(400).json({ error: 'question or imageSrc required' });
+  const { context = '', history = [], question = '', imageSrc = null, images = null } = req.body || {};
+  // Accept the new `images` array; fall back to legacy single `imageSrc` from older clients.
+  const imageList = (Array.isArray(images) ? images : imageSrc ? [imageSrc] : []).filter(Boolean);
+  if (!question && !imageList.length) return res.status(400).json({ error: 'question or images required' });
 
-  const requestType = imageSrc ? 'vision' : 'text';
+  const requestType = imageList.length ? 'vision' : 'text';
   const costKey = requestType === 'vision' ? 'credit_cost_vision' : 'credit_cost_text';
   const cost = Number(await getSetting(costKey, '1'));
 
@@ -33,7 +35,7 @@ router.post('/ask', requireAuth, async (req, res) => {
   }
 
   try {
-    const result = await askAI({ context, history, question, imageSrc });
+    const result = await askAI({ context, history, question, images: imageList });
     await AiRequest.create({
       user_id: req.user.id,
       request_type: requestType,

@@ -50,9 +50,9 @@ function dataUrlToInlinePart(dataUrl) {
 
 /**
  * Vertex AI (Gemini) fallback provider — same contract as askAI in openaiWrapper.js:
- * context + history + question (+ optional base64 image data URL) -> answer text.
+ * context + history + question (+ optional base64 image data URLs) -> answer text.
  */
-export async function askVertex({ context, history = [], question = '', imageSrc = null }) {
+export async function askVertex({ context, history = [], question = '', images = [] }) {
   const systemMessage = `You are an expert interview copilot.
 Your goal is to help the user answer questions based on the provided context.
 Keep your answers concise, accurate, and directly address the user's prompt.
@@ -63,8 +63,10 @@ Here is the pre-meeting context:\n\n${context || ''}`;
     .join('\n');
 
   const parts = [{ text: `${systemMessage}\n\n${historyText}\n\nUser: ${question}` }];
-  const imagePart = dataUrlToInlinePart(imageSrc);
-  if (imagePart) parts.push(imagePart);
+  for (const img of images) {
+    const imagePart = dataUrlToInlinePart(img);
+    if (imagePart) parts.push(imagePart);
+  }
 
   const result = await getModel().generateContent({ contents: [{ role: 'user', parts }] });
   const response = result.response;

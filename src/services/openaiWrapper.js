@@ -14,7 +14,7 @@ function getClient() {
   return client;
 }
 
-async function askOpenAI({ context, history, question, imageSrc, model, maxTokens }) {
+async function askOpenAI({ context, history, question, images, model, maxTokens }) {
   const systemMessage = `You are an expert interview copilot.
 Your goal is to help the user answer questions based on the provided context.
 Keep your answers concise, accurate, and directly address the user's prompt.
@@ -24,7 +24,7 @@ Here is the pre-meeting context:\n\n${context || ''}`;
 
   const userContent = [];
   if (question) userContent.push({ type: 'text', text: question });
-  if (imageSrc) userContent.push({ type: 'image_url', image_url: { url: imageSrc } });
+  for (const url of images) userContent.push({ type: 'image_url', image_url: { url } });
   messages.push({ role: 'user', content: userContent });
 
   const response = await getClient().chat.completions.create({
@@ -43,22 +43,22 @@ Here is the pre-meeting context:\n\n${context || ''}`;
 
 /**
  * Wrapper around the AI provider. Same contract the desktop app used locally:
- * context + history + question (+ optional base64 image) -> answer text.
+ * context + history + question (+ optional base64 images) -> answer text.
  * Falls back to Vertex AI (Gemini) if the primary OpenAI-compatible provider fails.
  */
-export async function askAI({ context, history = [], question = '', imageSrc = null }) {
+export async function askAI({ context, history = [], question = '', images = [] }) {
   const settings = await getSettings();
   const model = config.openaiModel || settings.ai_model || 'gpt-4o';
   const maxTokens = config.openaiMaxTokens ?? Number(settings.ai_max_tokens || 1000);
 
   try {
-    return await askOpenAI({ context, history, question, imageSrc, model, maxTokens });
+    return await askOpenAI({ context, history, question, images, model, maxTokens });
   } catch (primaryErr) {
     if (primaryErr.code === 'AI_NOT_CONFIGURED') {
       // No primary provider configured at all — go straight to Vertex.
     } else {
       console.error('Primary AI provider failed, falling back to Vertex AI:', primaryErr.message);
     }
-    return await askVertex({ context, history, question, imageSrc });
+    return await askVertex({ context, history, question, images });
   }
 }
