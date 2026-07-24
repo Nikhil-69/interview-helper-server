@@ -7,6 +7,7 @@
 //   node scripts/vercel-env.js get KEY                # show one value
 //   node scripts/vercel-env.js set KEY VALUE          # create or replace a value
 //   node scripts/vercel-env.js rm KEY                 # delete a var
+//   node scripts/vercel-env.js sync FILE              # push every changed var from a local env file
 //
 // Reads the Vercel CLI's own auth token (~/.local/share/com.vercel.cli/auth.json)
 // and this project's linked projectId/orgId (.vercel/project.json) — no extra
@@ -15,6 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import dotenv from 'dotenv';
 
 const TARGET = 'production';
 // Vars Vercel injects automatically on every pull — not ones we manage.
@@ -110,14 +112,38 @@ async function cmdRm(key) {
   console.log(`Removed ${key} (production). Redeploy for it to take effect.`);
 }
 
+// Local-only vars that make no sense on Vercel (serverless has no port and no
+// disk for a key file — use VERTEX_SERVICE_ACCOUNT_JSON there instead).
+const SYNC_SKIP = new Set(['PORT', 'VERTEX_KEY_FILE']);
+
+async function cmdSync(file) {
+  const local = dotenv.parse(fs.readFileSync(file, 'utf8'));
+  const remote = pullValues();
+
+  let changed = 0;
+  for (const [key, value] of Object.entries(local)) {
+    if (SYNC_SKIP.has(key) || VERCEL_BUILTINS.test(key)) continue;
+    if (remote[key] === value) continue;
+    await cmdSet(key, value);
+    changed++;
+  }
+
+  const remoteOnly = Object.keys(remote).filter((k) => !(k in local));
+  if (remoteOnly.length) {
+    console.log(`Left unchanged (on Vercel but not in ${file}): ${remoteOnly.join(', ')}`);
+  }
+  console.log(changed ? `Synced ${changed} var(s).` : 'Env already in sync.');
+}
+
 const [, , cmd, a, b] = process.argv;
 try {
   if (cmd === 'list') cmdList();
   else if (cmd === 'get' && a) cmdGet(a);
   else if (cmd === 'set' && a && b !== undefined) await cmdSet(a, b);
   else if (cmd === 'rm' && a) await cmdRm(a);
+  else if (cmd === 'sync' && a) await cmdSync(a);
   else {
-    console.log('Usage: node scripts/vercel-env.js <list|get KEY|set KEY VALUE|rm KEY>');
+    console.log('Usage: node scripts/vercel-env.js <list|get KEY|set KEY VALUE|rm KEY|sync FILE>');
     process.exit(1);
   }
 } catch (err) {

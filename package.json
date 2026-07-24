@@ -9,6 +9,7 @@
     "start": "node src/index.js",
     "seed": "node scripts/seed.js",
     "env": "node scripts/vercel-env.js",
+    "deploy": "./deploy.sh",
     "admin:dev": "vite admin",
     "admin:build": "vite build admin",
     "build": "npm run admin:build"
