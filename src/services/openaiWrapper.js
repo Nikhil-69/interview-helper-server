@@ -1,0 +1,49 @@
+import OpenAI from 'openai';
+import { config } from '../config.js';
+import { getSettings } from '../db.js';
+
+let client = null;
+function getClient() {
+  if (!config.openaiApiKey) {
+    const err = new Error('OPENAI_API_KEY is not configured on the server');
+    err.code = 'AI_NOT_CONFIGURED';
+    throw err;
+  }
+  if (!client) client = new OpenAI({ apiKey: config.openaiApiKey });
+  return client;
+}
+
+/**
+ * Wrapper around the AI provider. Same contract the desktop app used locally:
+ * context + history + question (+ optional base64 image) -> answer text.
+ */
+export async function askAI({ context, history = [], question = '', imageSrc = null }) {
+  const settings = await getSettings();
+  const model = settings.ai_model || 'gpt-4o';
+  const maxTokens = Number(settings.ai_max_tokens || 1000);
+
+  const systemMessage = `You are an expert interview copilot.
+Your goal is to help the user answer questions based on the provided context.
+Keep your answers concise, accurate, and directly address the user's prompt.
+Here is the pre-meeting context:\n\n${context || ''}`;
+
+  const messages = [{ role: 'system', content: systemMessage }, ...history];
+
+  const userContent = [];
+  if (question) userContent.push({ type: 'text', text: question });
+  if (imageSrc) userContent.push({ type: 'image_url', image_url: { url: imageSrc } });
+  messages.push({ role: 'user', content: userContent });
+
+  const response = await getClient().chat.completions.create({
+    model,
+    messages,
+    max_tokens: maxTokens,
+  });
+
+  return {
+    answer: response.choices[0].message.content || '',
+    model,
+    promptTokens: response.usage?.prompt_tokens ?? null,
+    completionTokens: response.usage?.completion_tokens ?? null,
+  };
+}

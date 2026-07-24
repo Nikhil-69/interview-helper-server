@@ -1,0 +1,14 @@
+services:
+  mysql:
+    image: mysql:8
+    container_name: interview-helper-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ADMIN_PASSWORD:-password}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - interview-helper-mysql-data:/var/lib/mysql
+
+volumes:
+  interview-helper-mysql-data:
