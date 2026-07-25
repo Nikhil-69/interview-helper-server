@@ -31,6 +31,7 @@ router.post('/ask', requireAuth, async (req, res) => {
     images = null,
     promptMode = '',
     customPrompt = '',
+    webSearch = false,
   } = req.body || {};
   if (!isKnownPromptMode(promptMode)) return res.status(400).json({ error: 'Unknown promptMode' });
   // Accept the new `images` array; fall back to legacy single `imageSrc` from older clients.
@@ -61,6 +62,7 @@ router.post('/ask', requireAuth, async (req, res) => {
       images: imageList,
       promptMode,
       customPrompt,
+      webSearch: !!webSearch,
       preferredKimiModel: req.user.openai_model,
       preferredVertexModel: req.user.vertex_model,
     });

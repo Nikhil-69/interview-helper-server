@@ -54,7 +54,10 @@ function trimHistoryImages(history, maxImages) {
   return out;
 }
 
-async function askKimi({ systemMessage, history, question, images, model, maxTokens, reasoning }) {
+// Models that support Kimi's builtin $web_search tool (per Moonshot docs).
+const SEARCH_CAPABLE = new Set(['kimi-k3', 'kimi-k2.6']);
+
+async function askKimi({ systemMessage, history, question, images, model, maxTokens, reasoning, webSearch }) {
   const messages = [{ role: 'system', content: systemMessage }, ...history];
 
   const userContent = [];
@@ -62,21 +65,37 @@ async function askKimi({ systemMessage, history, question, images, model, maxTok
   for (const url of images) userContent.push({ type: 'image_url', image_url: { url } });
   messages.push({ role: 'user', content: userContent });
 
-  const response = await getClient().chat.completions.create({
+  const useSearch = !!webSearch && SEARCH_CAPABLE.has(model);
+  const base = {
     model,
-    messages,
     max_tokens: maxTokens,
     // Only sent when an admin set a level; thinking-capable models otherwise
     // run at the provider default. 'none' disables reasoning.
     ...(reasoning ? { reasoning_effort: reasoning } : {}),
-  });
-
-  return {
-    answer: response.choices[0].message.content || '',
-    model,
-    promptTokens: response.usage?.prompt_tokens ?? null,
-    completionTokens: response.usage?.completion_tokens ?? null,
+    // Kimi's builtin web search: the search runs on Moonshot's side; we only
+    // echo the tool call's arguments back as the tool result.
+    ...(useSearch ? { tools: [{ type: 'builtin_function', function: { name: '$web_search' } }] } : {}),
   };
+
+  let promptTokens = 0;
+  let completionTokens = 0;
+  const MAX_SEARCH_ROUNDS = 3;
+  for (let round = 0; ; round++) {
+    const response = await getClient().chat.completions.create({ ...base, messages });
+    promptTokens += response.usage?.prompt_tokens ?? 0;
+    completionTokens += response.usage?.completion_tokens ?? 0;
+    const choice = response.choices[0];
+
+    if (useSearch && choice.finish_reason === 'tool_calls' && round < MAX_SEARCH_ROUNDS) {
+      messages.push(choice.message);
+      for (const tc of choice.message.tool_calls || []) {
+        messages.push({ role: 'tool', tool_call_id: tc.id, name: tc.function.name, content: tc.function.arguments });
+      }
+      continue;
+    }
+
+    return { answer: choice.message.content || '', model, promptTokens, completionTokens };
+  }
 }
 
 /**
@@ -95,6 +114,7 @@ export async function askAI({
   images = [],
   promptMode = '',
   customPrompt = '',
+  webSearch = false,
   preferredKimiModel = '',
   preferredVertexModel = '',
 }) {
@@ -127,7 +147,7 @@ export async function askAI({
   const systemMessage = buildSystemMessage({ mode: promptMode, customPrompt, context });
 
   try {
-    return await askKimi({ systemMessage, history, question, images, model, maxTokens, reasoning });
+    return await askKimi({ systemMessage, history, question, images, model, maxTokens, reasoning, webSearch });
   } catch (primaryErr) {
     if (primaryErr.code === 'AI_NOT_CONFIGURED') {
       // No primary provider configured at all — go straight to Vertex.
