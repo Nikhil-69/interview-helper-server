@@ -203,9 +203,46 @@ function Users() {
   );
 }
 
+function PackageModal({ pkg, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    name: pkg.name, credits: String(pkg.credits), price: String(pkg.price), currency: pkg.currency,
+  });
+  const [error, setError] = useState('');
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const save = async () => {
+    setError('');
+    try {
+      await api(`/admin/packages/${pkg.id}`, {
+        method: 'PATCH',
+        body: { name: form.name, credits: Number(form.credits), price: Number(form.price), currency: form.currency },
+      });
+      onSaved();
+    } catch (err) { setError(err.message); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Edit package — {pkg.name}</h3>
+        <div><label>Name</label><input value={form.name} onChange={set('name')} /></div>
+        <div><label>Credits</label><input type="number" value={form.credits} onChange={set('credits')} /></div>
+        <div><label>Price</label><input type="number" value={form.price} onChange={set('price')} /></div>
+        <div><label>Currency</label><input value={form.currency} onChange={set('currency')} /></div>
+        {error && <div className="error-msg">{error}</div>}
+        <div className="row" style={{ marginBottom: 0, justifyContent: 'flex-end' }}>
+          <button className="btn secondary" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={save} disabled={!form.name || !Number(form.credits) || form.price === ''}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Packages() {
   const [packages, setPackages] = useState([]);
   const [form, setForm] = useState({ name: '', credits: '', price: '' });
+  const [editing, setEditing] = useState(null);
 
   const load = () => api('/admin/packages').then((d) => setPackages(d.packages)).catch(console.error);
   useEffect(() => { load(); }, []);
@@ -247,6 +284,7 @@ function Packages() {
               <td><span className={`pill ${p.is_active ? 'active' : 'blocked'}`}>{p.is_active ? 'active' : 'inactive'}</span></td>
               <td>
                 <div className="row" style={{ marginBottom: 0 }}>
+                  <button className="btn small secondary" onClick={() => setEditing(p)}>Edit</button>
                   <button className="btn small secondary" onClick={() => toggle(p)}>{p.is_active ? 'Deactivate' : 'Activate'}</button>
                   <button className="btn small danger" onClick={() => remove(p)}>Delete</button>
                 </div>
@@ -255,6 +293,7 @@ function Packages() {
           ))}
         </tbody>
       </table>
+      {editing && <PackageModal pkg={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
     </>
   );
 }
