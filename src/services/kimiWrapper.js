@@ -79,7 +79,7 @@ async function askKimi({ systemMessage, history, question, images, model, maxTok
 
   let promptTokens = 0;
   let completionTokens = 0;
-  const MAX_SEARCH_ROUNDS = 3;
+  const MAX_SEARCH_ROUNDS = 2;
   for (let round = 0; ; round++) {
     const response = await getClient().chat.completions.create({ ...base, messages });
     promptTokens += response.usage?.prompt_tokens ?? 0;
