@@ -19,4 +19,8 @@ export const config = {
   // JSON contents (for platforms like Vercel where only env vars are available).
   vertexKeyFile: process.env.VERTEX_KEY_FILE || './credentials/vertex-service-account.json',
   vertexServiceAccountJson: process.env.VERTEX_SERVICE_ACCOUNT_JSON || '',
+  // Razorpay (payments). Leave unset to fall back to the mock gateway in dev.
+  razorpayKeyId: process.env.RAZORPAY_KEY_ID || '',
+  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET || '',
+  razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
 };

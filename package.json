@@ -22,7 +22,8 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^9.8.0",
-    "openai": "^6.45.0"
+    "openai": "^6.45.0",
+    "razorpay": "^2.9.8"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.3",

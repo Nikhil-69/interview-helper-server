@@ -55,6 +55,7 @@ const orderSchema = new Schema(
     currency: { type: String, default: 'INR' },
     gateway: { type: String, default: 'mock' },
     gateway_order_id: { type: String, default: null },
+    gateway_payment_id: { type: String, default: null },
     status: { type: String, enum: ['pending', 'paid', 'failed'], default: 'pending' },
     paid_at: { type: Date, default: null },
   },
