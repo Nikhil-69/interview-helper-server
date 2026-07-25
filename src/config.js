@@ -12,7 +12,7 @@ export const config = {
   kimiMaxTokens: process.env.KIMI_MAX_TOKENS ? Number(process.env.KIMI_MAX_TOKENS) : undefined,
   vertexProjectId: process.env.VERTEX_PROJECT_ID || '',
   vertexLocation: process.env.VERTEX_LOCATION || 'global',
-  vertexModel: process.env.VERTEX_MODEL || 'gemini-2.5-pro',
+  vertexModel: process.env.VERTEX_MODEL || 'gemini-3-flash-preview',
   vertexApiEndpoint: process.env.VERTEX_API_ENDPOINT || 'aiplatform.googleapis.com',
   // Either a path to a service-account JSON file (local dev) or the raw/base64
   // JSON contents (for platforms like Vercel where only env vars are available).
