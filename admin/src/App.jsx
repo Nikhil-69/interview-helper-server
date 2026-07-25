@@ -99,7 +99,7 @@ function UserModal({ user, onClose, onSaved }) {
           <select value={form.status} onChange={set('status')}>
             <option value="active">active</option><option value="blocked">blocked</option>
           </select></div>}
-        {!isNew && <div><label>OpenAI model (main)</label>
+        {!isNew && <div><label>Kimi model (main)</label>
           <select value={form.openai_model} onChange={set('openai_model')}>
             {models.openai.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select></div>}
@@ -172,7 +172,7 @@ function Users() {
         <button className="btn" onClick={() => setModal({ type: 'new' })}>+ New user</button>
       </div>
       <table>
-        <thead><tr><th>ID</th><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>OpenAI model</th><th>Vertex model</th><th>Credits</th><th>Joined</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Kimi model</th><th>Vertex model</th><th>Credits</th><th>Joined</th><th></th></tr></thead>
         <tbody>
           {users.map((u) => (
             <tr key={u.id}>
@@ -259,12 +259,86 @@ function Packages() {
   );
 }
 
+// Per-mode model + cost/reasoning limits, backed by GET/PUT /admin/mode-models.
+// The same values live as mode_* settings rows, but this table is the friendly
+// way to edit them (the Settings tab hides mode_* keys).
+function ModesView() {
+  const [data, setData] = useState(null);
+  const [edits, setEdits] = useState({}); // { [mode]: {model?, max_tokens?, ...} }
+  const [saving, setSaving] = useState('');
+  const [error, setError] = useState('');
+
+  const load = () => api('/admin/mode-models').then(setData).catch((e) => setError(e.message));
+  useEffect(() => { load(); }, []);
+
+  if (error && !data) return <p className="error-msg">{error}</p>;
+  if (!data) return <p className="muted">Loading…</p>;
+
+  const val = (row, field) => edits[row.mode]?.[field] ?? row[field];
+  const setVal = (mode, field) => (e) =>
+    setEdits((ed) => ({ ...ed, [mode]: { ...ed[mode], [field]: e.target.value } }));
+
+  const save = async (mode) => {
+    setSaving(mode);
+    setError('');
+    try {
+      await api(`/admin/mode-models/${mode}`, { method: 'PUT', body: edits[mode] });
+      setEdits((ed) => { const { [mode]: _, ...rest } = ed; return rest; });
+      load();
+    } catch (err) { setError(err.message); }
+    setSaving('');
+  };
+
+  const g = data.global_defaults;
+  return (
+    <>
+      <h2>AI Modes</h2>
+      <p className="muted">
+        Per-mode model and cost limits. Empty limit = global default
+        (tokens: {g.max_tokens}, history: {g.history_limit} msgs, images: {g.history_images}, reasoning: {g.reasoning || 'provider default'}).
+      </p>
+      {error && <div className="error-msg">{error}</div>}
+      <table>
+        <thead><tr><th>Mode</th><th>Model</th><th>Max tokens</th><th>History msgs</th><th>History images</th><th>Reasoning</th><th></th></tr></thead>
+        <tbody>
+          {data.modes.map((row) => (
+            <tr key={row.mode}>
+              <td>{row.label} <span className="muted">({row.mode})</span></td>
+              <td>
+                <select value={val(row, 'model')} onChange={setVal(row.mode, 'model')}>
+                  {data.models.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </td>
+              <td><input style={{ width: 80 }} placeholder={g.max_tokens} value={val(row, 'max_tokens')} onChange={setVal(row.mode, 'max_tokens')} /></td>
+              <td><input style={{ width: 70 }} placeholder={g.history_limit} value={val(row, 'history_limit')} onChange={setVal(row.mode, 'history_limit')} /></td>
+              <td><input style={{ width: 70 }} placeholder={g.history_images} value={val(row, 'history_images')} onChange={setVal(row.mode, 'history_images')} /></td>
+              <td>
+                <select value={val(row, 'reasoning')} onChange={setVal(row.mode, 'reasoning')}>
+                  {data.reasoning_levels.map((r) => <option key={r} value={r}>{r || 'default'}</option>)}
+                </select>
+              </td>
+              <td>
+                <button className="btn small" disabled={!edits[row.mode] || saving === row.mode} onClick={() => save(row.mode)}>
+                  {saving === row.mode ? 'Saving…' : 'Save'}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
 const SETTING_LABELS = {
   credit_cost_text: 'Credits per text request',
   credit_cost_vision: 'Credits per screenshot/vision request',
   signup_bonus_credits: 'Free credits on signup',
-  ai_model: 'AI model',
-  ai_max_tokens: 'Max response tokens',
+  ai_model: 'AI model (global)',
+  ai_max_tokens: 'Max response tokens (global)',
+  ai_history_limit: 'History messages per request (global)',
+  ai_history_images: 'History images per request (global)',
+  ai_reasoning: 'Reasoning level (global)',
 };
 
 function SettingsView() {
@@ -286,7 +360,7 @@ function SettingsView() {
       <table>
         <thead><tr><th>Setting</th><th>Value</th><th></th></tr></thead>
         <tbody>
-          {settings.map((s) => (
+          {settings.filter((s) => !s.key.startsWith('mode_')).map((s) => (
             <tr key={s.key}>
               <td>{SETTING_LABELS[s.key] || s.key} <span className="muted">({s.key})</span></td>
               <td>
@@ -370,6 +444,7 @@ const VIEWS = {
   dashboard: { label: 'Dashboard', component: Dashboard },
   users: { label: 'Users', component: Users },
   packages: { label: 'Packages', component: Packages },
+  modes: { label: 'AI Modes', component: ModesView },
   activity: { label: 'Activity', component: Activity },
   settings: { label: 'Settings', component: SettingsView },
 };

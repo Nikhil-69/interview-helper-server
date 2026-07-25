@@ -83,7 +83,9 @@ export async function askVertex({ systemMessage, history = [], question = '', im
   }
 
   const modelName = model || config.vertexModel;
-  const thinkingBudget = THINKING_BUDGETS[reasoning];
+  let thinkingBudget = THINKING_BUDGETS[reasoning];
+  // Gemini Pro models can't disable thinking — their minimum budget is 128.
+  if (thinkingBudget === 0 && /pro/i.test(modelName)) thinkingBudget = 128;
   const result = await getModel(modelName).generateContent({
     contents: [{ role: 'user', parts }],
     ...(thinkingBudget !== undefined

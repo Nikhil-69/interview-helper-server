@@ -16,6 +16,19 @@ function getClient() {
   return client;
 }
 
+// Kimi rejects messages with empty content ("must not be empty"), and the app
+// sends image-only turns as empty text in history. Substitute a placeholder so
+// a screenshot-first conversation doesn't 400 from the second message onward.
+function fillEmptyHistoryContent(history) {
+  return history.map((msg) => {
+    const empty =
+      msg?.content == null ||
+      (typeof msg.content === 'string' && !msg.content.trim()) ||
+      (Array.isArray(msg.content) && !msg.content.length);
+    return empty ? { ...msg, content: '[screenshot]' } : msg;
+  });
+}
+
 // History messages may be multimodal (arrays with image_url parts from past
 // vision turns). Every resent image costs ~1k+ input tokens, so keep only the
 // newest `maxImages` and replace older ones with a cheap text placeholder.
@@ -98,6 +111,7 @@ export async function askAI({
   const modeHistoryLimit = promptMode ? Number(settings[modeHistoryLimitKey(promptMode)]) || 0 : 0;
   const historyLimit = modeHistoryLimit > 0 ? modeHistoryLimit : Number(settings.ai_history_limit) || 0;
   if (historyLimit > 0 && history.length > historyLimit) history = history.slice(-historyLimit);
+  history = fillEmptyHistoryContent(history);
 
   // Image budget for history ('' = use global; '0' is a valid "strip all").
   const modeImagesRaw = promptMode ? settings[modeHistoryImagesKey(promptMode)] : '';
