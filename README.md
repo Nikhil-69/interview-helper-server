@@ -14,7 +14,7 @@ AI request, and processes credit purchases (mock gateway for now).
 ## Setup
 
 ```bash
-cp .env.example .env    # fill in OPENAI_API_KEY, JWT_SECRET, admin credentials
+cp .env.example .env    # fill in KIMI_API_KEY, JWT_SECRET, admin credentials
 docker compose up -d    # starts local MongoDB 7 container
 npm install
 npm run seed            # creates admin user + default credit packages
@@ -68,7 +68,7 @@ layer (`public/admin`, built by `npm run admin:build`). Config in `vercel.json`.
      ```
 2. **Import the repo** on vercel.com (or `npx vercel`). No framework preset needed.
 3. **Environment variables** (Vercel → Project → Settings): `MONGODB_URI`,
-   `JWT_SECRET` (long random string), `OPENAI_API_KEY`.
+   `JWT_SECRET` (long random string), `KIMI_API_KEY`.
 4. Point the desktop app at it: build with `VITE_API_URL=https://<project>.vercel.app`.
 
 Serverless caveats already handled: the mongoose connection is cached across

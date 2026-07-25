@@ -1,13 +1,15 @@
-// Per-user model catalog for the admin panel: OpenAI is always the primary
-// provider, Vertex (Gemini) is always the fallback used if OpenAI fails.
+// Per-user model catalog for the admin panel: Kimi (Moonshot AI) is always the
+// primary provider, Vertex (Gemini) is always the fallback used if Kimi fails.
 // Admins pick one model for each independently. Both lists are static —
-// availability is whatever the project/region actually supports at request time.
+// availability is whatever the account/region actually supports at request time.
+// Note: the API/DB field is still named openai_model (Kimi's API is
+// OpenAI-compatible and renaming would break existing users + the built admin UI).
 
-export const OPENAI_MODELS = [
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o mini' },
-  { value: 'gpt-4.1', label: 'GPT-4.1' },
-  { value: 'gpt-4.1-mini', label: 'GPT-4.1 mini' },
+export const KIMI_MODELS = [
+  { value: 'kimi-k3', label: 'Kimi K3' },
+  { value: 'kimi-k2.7-code', label: 'Kimi K2.7 Code' },
+  { value: 'kimi-k2.6', label: 'Kimi K2.6' },
+  { value: 'kimi-k2.5', label: 'Kimi K2.5' },
 ];
 
 export const VERTEX_MODELS = [
@@ -19,8 +21,18 @@ export const VERTEX_MODELS = [
 
 const DEFAULT_OPTION = { value: '', label: 'Default (global setting)' };
 
-export function isKnownOpenAIModel(value) {
-  return !value || OPENAI_MODELS.some((m) => m.value === value);
+// Reasoning levels for thinking-capable models. '' = provider default.
+// Sent as reasoning_effort to Kimi; mapped to a thinking budget on Vertex.
+// Verified live against api.moonshot.ai: all levels accepted; kimi-k2.5/k2.6/
+// k2.7-code think by default, kimi-k3 is thinking-only (default effort max).
+export const REASONING_LEVELS = ['none', 'low', 'medium', 'high', 'max'];
+
+export function isKnownReasoningLevel(value) {
+  return !value || REASONING_LEVELS.includes(value);
+}
+
+export function isKnownKimiModel(value) {
+  return !value || KIMI_MODELS.some((m) => m.value === value);
 }
 
 export function isKnownVertexModel(value) {
@@ -29,7 +41,7 @@ export function isKnownVertexModel(value) {
 
 export function getAvailableModels() {
   return {
-    openai: [DEFAULT_OPTION, ...OPENAI_MODELS],
+    openai: [DEFAULT_OPTION, ...KIMI_MODELS],
     vertex: [DEFAULT_OPTION, ...VERTEX_MODELS],
   };
 }

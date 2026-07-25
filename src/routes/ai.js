@@ -2,10 +2,20 @@ import { Router } from 'express';
 import { getSetting } from '../db.js';
 import { AiRequest } from '../models.js';
 import { requireAuth } from '../middleware/auth.js';
-import { askAI } from '../services/openaiWrapper.js';
+import { askAI } from '../services/kimiWrapper.js';
+import { getPromptModes, isKnownPromptMode } from '../services/prompts.js';
 import { applyCreditChange } from '../services/creditService.js';
 
 const router = Router();
+
+/**
+ * GET /api/ai/prompt-modes
+ * Preset prompt cases the app shows in place of the old pre-meeting prompt:
+ * coding (interview/OA/learning), non-coding (MCQ/learning/descriptive), mix, custom.
+ */
+router.get('/prompt-modes', requireAuth, (req, res) => {
+  res.json({ modes: getPromptModes() });
+});
 
 /**
  * POST /api/ai/ask
@@ -13,7 +23,16 @@ const router = Router();
  * provider failure, and logs every request to ai_requests.
  */
 router.post('/ask', requireAuth, async (req, res) => {
-  const { context = '', history = [], question = '', imageSrc = null, images = null } = req.body || {};
+  const {
+    context = '',
+    history = [],
+    question = '',
+    imageSrc = null,
+    images = null,
+    promptMode = '',
+    customPrompt = '',
+  } = req.body || {};
+  if (!isKnownPromptMode(promptMode)) return res.status(400).json({ error: 'Unknown promptMode' });
   // Accept the new `images` array; fall back to legacy single `imageSrc` from older clients.
   const imageList = (Array.isArray(images) ? images : imageSrc ? [imageSrc] : []).filter(Boolean);
   if (!question && !imageList.length) return res.status(400).json({ error: 'question or images required' });
@@ -40,7 +59,9 @@ router.post('/ask', requireAuth, async (req, res) => {
       history,
       question,
       images: imageList,
-      preferredOpenAIModel: req.user.openai_model,
+      promptMode,
+      customPrompt,
+      preferredKimiModel: req.user.openai_model,
       preferredVertexModel: req.user.vertex_model,
     });
     await AiRequest.create({

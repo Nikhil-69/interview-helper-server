@@ -14,8 +14,8 @@ const userSchema = new Schema(
     status: { type: String, enum: ['active', 'blocked'], default: 'active' },
     credits_balance: { type: Number, default: 0 },
     // Per-user AI model overrides. Empty string = use the global setting.
-    // openai_model is the primary provider; vertex_model is the fallback
-    // used automatically if the primary provider fails.
+    // openai_model holds the primary provider's model — now Kimi (Moonshot AI,
+    // OpenAI-compatible); vertex_model is the fallback used if the primary fails.
     openai_model: { type: String, default: '' },
     vertex_model: { type: String, default: '' },
   },

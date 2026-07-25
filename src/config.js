@@ -5,12 +5,11 @@ export const config = {
   mongodbUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/interview_helper',
   jwtSecret: process.env.JWT_SECRET || 'dev-secret',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
-  openaiApiKey: process.env.OPENAI_API_KEY || '',
-  openaiBaseUrl: process.env.OPENAI_BASE_URL || undefined,
-  // Base default model, used only when neither a per-user override nor the
-  // global ai_model admin setting (stored in Mongo) is set.
-  openaiModel: process.env.OPENAI_MODEL || '',
-  openaiMaxTokens: process.env.OPENAI_MAX_TOKENS ? Number(process.env.OPENAI_MAX_TOKENS) : undefined,
+  kimiApiKey: process.env.KIMI_API_KEY || '',
+  kimiBaseUrl: process.env.KIMI_BASE_URL || 'https://api.moonshot.ai/v1',
+  // Model selection lives in the settings table (ai_model + mode_model_* rows,
+  // admin-editable) — there is no env-level model override.
+  kimiMaxTokens: process.env.KIMI_MAX_TOKENS ? Number(process.env.KIMI_MAX_TOKENS) : undefined,
   vertexProjectId: process.env.VERTEX_PROJECT_ID || '',
   vertexLocation: process.env.VERTEX_LOCATION || 'global',
   vertexModel: process.env.VERTEX_MODEL || 'gemini-2.5-pro',

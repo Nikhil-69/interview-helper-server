@@ -57,17 +57,23 @@ function dataUrlToInlinePart(dataUrl) {
 }
 
 /**
- * Vertex AI (Gemini) fallback provider — same contract as askAI in openaiWrapper.js:
- * context + history + question (+ optional base64 image data URLs) -> answer text.
+ * Vertex AI (Gemini) fallback provider — same contract as askAI in kimiWrapper.js:
+ * systemMessage + history + question (+ optional base64 image data URLs) -> answer text.
  */
-export async function askVertex({ context, history = [], question = '', images = [], model }) {
-  const systemMessage = `You are an expert interview copilot.
-Your goal is to help the user answer questions based on the provided context.
-Keep your answers concise, accurate, and directly address the user's prompt.
-Here is the pre-meeting context:\n\n${context || ''}`;
+// Reasoning level → Gemini thinking budget (tokens). 0 disables thinking on
+// models that allow it; unset = model default (auto).
+const THINKING_BUDGETS = { none: 0, low: 1024, medium: 4096, high: 8192, max: 16384 };
 
+export async function askVertex({ systemMessage, history = [], question = '', images = [], model, reasoning = '' }) {
+  // History content may be multimodal arrays; keep the text parts and mark images.
+  const contentText = (c) =>
+    typeof c === 'string'
+      ? c
+      : Array.isArray(c)
+        ? c.map((p) => (p?.type === 'image_url' ? '[image]' : p?.text || '')).filter(Boolean).join(' ')
+        : '';
   const historyText = history
-    .map((m) => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${typeof m.content === 'string' ? m.content : ''}`)
+    .map((m) => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${contentText(m.content)}`)
     .join('\n');
 
   const parts = [{ text: `${systemMessage}\n\n${historyText}\n\nUser: ${question}` }];
@@ -77,7 +83,13 @@ Here is the pre-meeting context:\n\n${context || ''}`;
   }
 
   const modelName = model || config.vertexModel;
-  const result = await getModel(modelName).generateContent({ contents: [{ role: 'user', parts }] });
+  const thinkingBudget = THINKING_BUDGETS[reasoning];
+  const result = await getModel(modelName).generateContent({
+    contents: [{ role: 'user', parts }],
+    ...(thinkingBudget !== undefined
+      ? { generationConfig: { thinkingConfig: { thinkingBudget } } }
+      : {}),
+  });
   const response = result.response;
   const answer = response.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
 

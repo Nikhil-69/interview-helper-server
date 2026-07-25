@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { SETTING_DEFAULTS } from '../db.js';
+import { SETTING_DEFAULTS, modeModelKey, modeMaxTokensKey, modeHistoryLimitKey, modeHistoryImagesKey, modeReasoningKey, getSettings } from '../db.js';
 import { User, CreditTransaction, CreditPackage, Order, AiRequest, Setting, toUserJson } from '../models.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { applyCreditChange } from '../services/creditService.js';
-import { getAvailableModels, isKnownOpenAIModel, isKnownVertexModel } from '../services/aiModels.js';
+import { getAvailableModels, isKnownKimiModel, isKnownVertexModel, isKnownReasoningLevel, KIMI_MODELS, REASONING_LEVELS } from '../services/aiModels.js';
+import { PROMPT_MODES } from '../services/prompts.js';
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -95,7 +96,7 @@ router.patch('/users/:id', async (req, res) => {
   if (['user', 'admin'].includes(req.body.role)) allowed.role = req.body.role;
   if (req.body.openai_model !== undefined) {
     const model = String(req.body.openai_model);
-    if (!isKnownOpenAIModel(model)) return res.status(400).json({ error: 'Unknown openai_model' });
+    if (!isKnownKimiModel(model)) return res.status(400).json({ error: 'Unknown openai_model' });
     allowed.openai_model = model;
   }
   if (req.body.vertex_model !== undefined) {
@@ -201,6 +202,81 @@ router.get('/models', (_req, res) => {
   res.json({ models: getAvailableModels() });
 });
 
+// ---- Prompt-mode → model table ----
+
+// The table lives in settings as mode_model_/mode_max_tokens_/mode_history_limit_
+// rows per mode (also editable from the generic Settings table). This endpoint
+// returns it as one table plus the option lists the admin UI needs.
+// Empty limit = fall through to the global ai_max_tokens / ai_history_limit.
+router.get('/mode-models', async (_req, res) => {
+  const settings = await getSettings();
+  res.json({
+    modes: PROMPT_MODES.map(({ value, label }) => ({
+      mode: value,
+      label,
+      model: settings[modeModelKey(value)] || '',
+      max_tokens: settings[modeMaxTokensKey(value)] || '',
+      history_limit: settings[modeHistoryLimitKey(value)] || '',
+      history_images: settings[modeHistoryImagesKey(value)] ?? '',
+      reasoning: settings[modeReasoningKey(value)] ?? '',
+    })),
+    models: [{ value: '', label: 'Default (global ai_model)' }, ...KIMI_MODELS],
+    reasoning_levels: ['', ...REASONING_LEVELS],
+    global_defaults: {
+      max_tokens: settings.ai_max_tokens,
+      history_limit: settings.ai_history_limit,
+      history_images: settings.ai_history_images,
+      reasoning: settings.ai_reasoning,
+    },
+  });
+});
+
+// '' clears a limit (use global); otherwise a non-negative integer.
+function parseLimit(raw) {
+  const value = String(raw ?? '').trim();
+  if (value === '') return '';
+  if (!/^\d+$/.test(value)) return null;
+  return value;
+}
+
+router.put('/mode-models/:mode', async (req, res) => {
+  const { mode } = req.params;
+  if (!PROMPT_MODES.some((m) => m.value === mode)) {
+    return res.status(400).json({ error: 'Unknown prompt mode' });
+  }
+  const updates = [];
+  if (req.body?.model !== undefined) {
+    const model = String(req.body.model);
+    if (!isKnownKimiModel(model)) return res.status(400).json({ error: 'Unknown model' });
+    updates.push([modeModelKey(mode), model]);
+  }
+  if (req.body?.max_tokens !== undefined) {
+    const value = parseLimit(req.body.max_tokens);
+    if (value === null) return res.status(400).json({ error: 'max_tokens must be a non-negative integer or empty' });
+    updates.push([modeMaxTokensKey(mode), value]);
+  }
+  if (req.body?.history_limit !== undefined) {
+    const value = parseLimit(req.body.history_limit);
+    if (value === null) return res.status(400).json({ error: 'history_limit must be a non-negative integer or empty' });
+    updates.push([modeHistoryLimitKey(mode), value]);
+  }
+  if (req.body?.history_images !== undefined) {
+    const value = parseLimit(req.body.history_images);
+    if (value === null) return res.status(400).json({ error: 'history_images must be a non-negative integer or empty' });
+    updates.push([modeHistoryImagesKey(mode), value]);
+  }
+  if (req.body?.reasoning !== undefined) {
+    const value = String(req.body.reasoning);
+    if (!isKnownReasoningLevel(value)) return res.status(400).json({ error: 'reasoning must be none/low/medium/high or empty' });
+    updates.push([modeReasoningKey(mode), value]);
+  }
+  if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+  for (const [key, value] of updates) {
+    await Setting.findOneAndUpdate({ key }, { value }, { upsert: true });
+  }
+  res.json({ ok: true });
+});
+
 // ---- Settings ----
 
 router.get('/settings', async (_req, res) => {
@@ -218,6 +294,32 @@ router.get('/settings', async (_req, res) => {
 
 router.put('/settings/:key', async (req, res) => {
   if (req.body?.value === undefined) return res.status(400).json({ error: 'value required' });
+  const key = req.params.key;
+  const value = String(req.body.value);
+  // Model-bearing settings must hold a known Kimi model ('' = use default chain).
+  if ((key === 'ai_model' || key.startsWith('mode_model_')) && !isKnownKimiModel(value)) {
+    return res.status(400).json({ error: 'Unknown model' });
+  }
+  // Per-mode rows must reference a real prompt mode; limit rows must be a
+  // non-negative integer or '' (= use the global setting).
+  if (key.startsWith('mode_')) {
+    const known = PROMPT_MODES.some(
+      (m) =>
+        key === modeModelKey(m.value) ||
+        key === modeMaxTokensKey(m.value) ||
+        key === modeHistoryLimitKey(m.value) ||
+        key === modeHistoryImagesKey(m.value) ||
+        key === modeReasoningKey(m.value)
+    );
+    if (!known) return res.status(400).json({ error: 'Unknown prompt mode setting' });
+  }
+  if ((key === 'ai_reasoning' || key.startsWith('mode_reasoning_')) && !isKnownReasoningLevel(value)) {
+    return res.status(400).json({ error: 'Reasoning must be none/low/medium/high or empty' });
+  }
+  const limitPrefixes = ['mode_max_tokens_', 'mode_history_limit_', 'mode_history_images_'];
+  if (limitPrefixes.some((p) => key.startsWith(p)) && value !== '' && !/^\d+$/.test(value)) {
+    return res.status(400).json({ error: 'Limit must be a non-negative integer or empty' });
+  }
   await Setting.findOneAndUpdate(
     { key: req.params.key },
     { value: String(req.body.value) },
